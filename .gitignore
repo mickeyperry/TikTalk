@@ -1,0 +1,10 @@
+# local speech engine (downloaded by setup.ps1 / the panel) — too big for git
+bin/
+
+# build output
+dist/
+*.zxp
+
+node_modules/
+Thumbs.db
+desktop.ini
