@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>TikTalk</title>
+    <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+    <div id="app">
+
+        <!-- ============ Header ============ -->
+        <div class="header">
+            <div class="header-left">
+                <svg class="logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="lg" x1="0" y1="0" x2="32" y2="32">
+                            <stop offset="0" stop-color="#ff00c8"/>
+                            <stop offset="1" stop-color="#7b2ff7"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="M16 3C9 3 3.5 7.8 3.5 13.8c0 3.4 1.8 6.4 4.6 8.4-.2 1.6-.9 3.6-2.4 5.2 2.8-.3 5-1.4 6.5-2.5 1.2.3 2.5.5 3.8.5 7 0 12.5-4.8 12.5-10.8S23 3 16 3z" fill="url(#lg)"/>
+                    <text x="16" y="18" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" font-weight="800" fill="#fff">TT</text>
+                </svg>
+                <div class="title-block">
+                    <div class="title">TIKTALK</div>
+                    <div class="tagline" id="tagline">keeping up with the kids, one caption at a time</div>
+                </div>
+            </div>
+            <button id="settingsToggle" class="icon-btn" title="Settings">&#9881;</button>
+        </div>
+
+        <!-- ============ Scrollable content ============ -->
+        <div class="content">
+
+            <!-- Engine setup (only shows when whisper/ffmpeg/model are missing) -->
+            <section id="setupCard" class="card setup-card hidden">
+                <div class="card-head"><span class="card-title"><span class="step">!</span>First time setup</span></div>
+                <div class="card-body">
+                    <p class="hint">TikTalk needs its little brain installed: <b>whisper</b> (speech-to-text),
+                        <b>ffmpeg</b> and a language model — about 250&nbsp;MB, downloaded once. No cap.</p>
+                    <button id="setupBtn" class="run-btn full">Download engine</button>
+                    <div id="setupProgress" class="progress hidden"><div class="bar"></div><span></span></div>
+                </div>
+            </section>
+
+            <!-- Settings -->
+            <section id="settings" class="card hidden">
+                <div class="card-head"><span class="card-title">Engine paths</span></div>
+                <div class="card-body">
+                    <label>whisper-cli executable
+                        <input type="text" id="whisperPath" placeholder="bin\whisper-cli.exe" />
+                    </label>
+                    <label>Whisper model (.bin)
+                        <input type="text" id="modelPath" placeholder="bin\models\ggml-base.bin" />
+                    </label>
+                    <label>ffmpeg executable
+                        <input type="text" id="ffmpegPath" placeholder="bin\ffmpeg.exe" />
+                    </label>
+                    <label>Language (blank = auto-detect)
+                        <input type="text" id="language" placeholder="auto" />
+                    </label>
+                    <div class="row">
+                        <label class="inline">Silence threshold (dB)
+                            <input type="number" id="silenceDb" value="-30" min="-60" max="-5" step="1" />
+                        </label>
+                        <label class="inline">Min silence (s)
+                            <input type="number" id="silenceMin" value="0.12" min="0.03" max="2" step="0.01" />
+                        </label>
+                    </div>
+                    <p class="hint">Speech detection: lower dB (e.g. -40) = more sensitive (noisy audio);
+                        higher (e.g. -20) = only loud speech counts.</p>
+                    <div class="row">
+                        <button id="autoDetectPaths" class="ghost-btn">Auto-fill from bin/</button>
+                        <button id="saveSettings" class="ghost-btn">Save</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 1. Transcribe -->
+            <section class="card" data-collapse="transcribe">
+                <div class="card-head"><span class="card-title"><span class="step">1</span>Transcribe</span><span class="chev">&#9660;</span></div>
+                <div class="card-body">
+                    <p class="hint">Select the audio/video layer in your comp, then let whisper do its thing.</p>
+                    <button id="detectBtn" class="ghost-btn">Use selected layer</button>
+                    <div id="sourceInfo" class="mono small"></div>
+                    <div class="toggle-row">
+                        <span class="toggle-label">Snap word timings to the audio</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="snapAudio" checked />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <button id="transcribeBtn" class="run-btn full" disabled>Transcribe</button>
+                    <div id="progress" class="progress hidden"><div class="bar"></div><span></span></div>
+                </div>
+            </section>
+
+            <!-- 2. Captions -->
+            <section class="card" data-collapse="captions">
+                <div class="card-head"><span class="card-title"><span class="step">2</span>Captions</span><span class="chev">&#9660;</span></div>
+                <div class="card-body">
+                    <p class="hint">Editable transcript — one word per line: <code>start&nbsp;&nbsp;end&nbsp;&nbsp;text</code> (seconds).
+                        Edit text freely; timings drive the animation.</p>
+                    <textarea id="transcript" rows="7" spellcheck="false"
+                        placeholder="Transcribe first, or paste words here…"></textarea>
+                    <div class="row">
+                        <label class="inline">Max words / line
+                            <input type="number" id="wordsPerLine" value="4" min="1" max="12" />
+                        </label>
+                        <label class="inline">Split on pause (s)
+                            <input type="number" id="maxGap" value="0.6" min="0" max="5" step="0.1" />
+                        </label>
+                        <label class="inline">Max line (s)
+                            <input type="number" id="maxDur" value="5" min="1" max="30" step="0.5" />
+                        </label>
+                    </div>
+                    <div class="toggle-row">
+                        <span class="toggle-label">ALL CAPS</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="allCaps" checked />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="divider"></div>
+                    <div class="row">
+                        <label class="inline">Time offset (s)
+                            <input type="number" id="offset" value="0" step="0.01" />
+                        </label>
+                        <button id="grabOffsetBtn" class="ghost-btn" title="Read the selected layer's start time">From layer</button>
+                        <button id="nudgeMinus" class="ghost-btn" title="-1 frame @ comp fps">-1f</button>
+                        <button id="nudgePlus" class="ghost-btn" title="+1 frame @ comp fps">+1f</button>
+                    </div>
+                    <p class="hint">Shifts all keyframes to where the audio actually starts in the comp.</p>
+                </div>
+            </section>
+
+            <!-- 3. Style & Animation -->
+            <section class="card" data-collapse="style">
+                <div class="card-head"><span class="card-title"><span class="step">3</span>Style &amp; Animation</span><span class="chev">&#9660;</span></div>
+                <div class="card-body">
+                    <div class="toggle-row">
+                        <span class="toggle-label">One text layer + hold keyframes (recommended)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="singleLayer" checked />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <p class="hint">A single "Captions" layer whose text changes exactly when each word is
+                        spoken — auto-centered, auto-shrunk. Turn off for the multi-layer presets.</p>
+
+                    <div class="row">
+                        <label class="inline">Fit width %
+                            <input type="number" id="fitMargin" value="90" min="20" max="100" />
+                        </label>
+                        <label class="inline">Reveal
+                            <select id="revealMode">
+                                <option value="phrase">Whole phrase at once</option>
+                                <option value="buildup">Build up word by word</option>
+                                <option value="oneword">One word at a time</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="row">
+                        <label class="inline">Caption linger (s)
+                            <input type="number" id="linger" value="0.15" min="0" max="3" step="0.05" />
+                        </label>
+                        <label class="inline">Max word hold (s)
+                            <input type="number" id="maxHold" value="1.2" min="0.2" max="10" step="0.1" />
+                        </label>
+                    </div>
+
+                    <label>Animation preset <span class="hint" style="display:inline">(multi-layer mode)</span>
+                        <select id="preset">
+                            <option value="popin">Pop-in (spring scale)</option>
+                            <option value="wordbyword">Word-by-word reveal</option>
+                            <option value="bounce">Bounce drop</option>
+                            <option value="typewriter">Typewriter</option>
+                            <option value="karaoke">Karaoke highlight</option>
+                        </select>
+                    </label>
+
+                    <div class="divider"></div>
+
+                    <label>Font
+                        <div class="font-picker">
+                            <div class="row">
+                                <input type="text" id="fontSearch" placeholder="Search your fonts…" autocomplete="off" />
+                                <button id="fontRefresh" class="icon-btn" title="Reload font list from After Effects">&#8635;</button>
+                            </div>
+                            <div id="fontDrop" class="font-drop hidden"></div>
+                        </div>
+                    </label>
+                    <div class="ps-name" id="fontPS" title="PostScript name used in AE">Arial-BoldMT</div>
+                    <input type="hidden" id="fontName" value="Arial-BoldMT" />
+
+                    <div class="row">
+                        <label class="inline">Font size
+                            <input type="number" id="fontSize" value="120" min="8" max="800" />
+                        </label>
+                        <label class="inline">Stroke
+                            <input type="number" id="strokeWidth" value="10" min="0" max="60" />
+                        </label>
+                    </div>
+                    <div class="row">
+                        <label class="inline">Fill
+                            <input type="color" id="fillColor" value="#ffffff" />
+                        </label>
+                        <label class="inline">Stroke
+                            <input type="color" id="strokeColor" value="#000000" />
+                        </label>
+                        <label class="inline">Accent
+                            <input type="color" id="accentColor" value="#ff00c8" />
+                        </label>
+                    </div>
+                    <div class="row">
+                        <label class="inline">Pos X %
+                            <input type="number" id="posX" value="50" min="0" max="100" />
+                        </label>
+                        <label class="inline">Pos Y %
+                            <input type="number" id="posY" value="82" min="0" max="100" />
+                        </label>
+                    </div>
+
+                    <label>Custom expression (applied to Scale; blank = skip)
+                        <textarea id="customExpr" rows="2" spellcheck="false"
+                            placeholder="e.g.  freq=2; amp=.1; s=value; s*(1+amp*Math.sin(time*freq*2*Math.PI))"></textarea>
+                    </label>
+                </div>
+            </section>
+
+            <div id="log" class="log mono"></div>
+        </div>
+
+        <!-- ============ Sticky action bar — always reachable ============ -->
+        <div class="action-bar">
+            <div class="toggle-row">
+                <span class="toggle-label">Replace previous captions</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="replace" checked />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <button id="generateBtn" class="run-btn full" disabled>Generate Titles</button>
+        </div>
+
+        <!-- ============ Footer ============ -->
+        <div class="footer">
+            <div class="footer-text">Made by <span>MICKEY PERRY</span></div>
+        </div>
+    </div>
+
+    <script src="js/CSInterface.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
