@@ -76,9 +76,20 @@
                 || files[0] || "";
             if (pick) model = path.join(modelsDir, pick);
         } catch (e) { /* models dir not there yet */ }
+        // prefer our bin/ copy, else an engine already installed on this PC (PATH)
+        function resolveExe(name) {
+            var local = path.join(bin, name);
+            if (fileOk(local)) return local;
+            try {
+                var hit = cp.execSync('where "' + name + '"', { windowsHide: true, stdio: ["ignore", "pipe", "ignore"] })
+                    .toString().split(/\r?\n/)[0].trim();
+                if (hit && fileOk(hit)) return hit;
+            } catch (e) { /* not on PATH */ }
+            return local;
+        }
         return {
-            whisper: path.join(bin, "whisper-cli.exe"),
-            ffmpeg: path.join(bin, "ffmpeg.exe"),
+            whisper: resolveExe("whisper-cli.exe"),
+            ffmpeg: resolveExe("ffmpeg.exe"),
             model: model || path.join(modelsDir, "ggml-base.bin")
         };
     }
@@ -101,6 +112,18 @@
 
     function checkEngine() {
         if (!hasNode) return;
+        // Before asking to install, look for an engine that's already on this PC.
+        if (!engineReady()) {
+            var p = computeBinPaths();
+            var found = false;
+            [["whisperPath", p.whisper], ["ffmpegPath", p.ffmpeg], ["modelPath", p.model]].forEach(function (kv) {
+                if (!fileOk($(kv[0]).value.trim()) && fileOk(kv[1])) { $(kv[0]).value = kv[1]; found = true; }
+            });
+            if (found) {
+                saveSettingsSilent();
+                if (engineReady()) log("Found an existing engine on this PC — no install needed.", "ok");
+            }
+        }
         if (engineReady()) {
             hide($("setupCard"));
         } else {
@@ -571,6 +594,8 @@
             words: words,
             wordsPerLine: parseInt($("wordsPerLine").value, 10) || 3,
             preset: $("preset").value,
+            bounciness: parseFloat($("bounciness").value),
+            animSpeed: parseFloat($("animSpeed").value) || 1,
             fontSize: parseFloat($("fontSize").value) || 120,
             strokeWidth: parseFloat($("strokeWidth").value) || 0,
             fontName: $("fontName").value.trim() || "Arial-BoldMT",
@@ -595,7 +620,7 @@
         var json = JSON.stringify(cfg);
         var script = "buildTitles(" + JSON.stringify(json) + ")";
         log("Generating " + words.length + " words → " +
-            (cfg.singleLayer ? "single layer (hold keyframes)" : cfg.preset) + "…");
+            (cfg.singleLayer ? "single layer, " : "multi-layer, ") + cfg.preset + "…");
         cs.evalScript(script, function (res) {
             if (res && res.indexOf("ERROR:") === 0) {
                 log(res.replace("ERROR:", ""), "err");
@@ -631,6 +656,12 @@
         $("detectBtn").addEventListener("click", detectSource);
         $("transcribeBtn").addEventListener("click", transcribe);
         $("generateBtn").addEventListener("click", generate);
+        $("animSpeed").addEventListener("input", function () {
+            $("animSpeedVal").textContent = parseFloat($("animSpeed").value).toFixed(2) + "x";
+        });
+        $("bounciness").addEventListener("input", function () {
+            $("bouncinessVal").textContent = $("bounciness").value;
+        });
 
         $("grabOffsetBtn").addEventListener("click", function () {
             cs.evalScript("getSelectedLayerOffset()", function (r) {
