@@ -78,34 +78,86 @@ function getSelectedLayerOffset() {
 /* ---------------------------------------------------------------- */
 /* Expression library                                               */
 /* ---------------------------------------------------------------- */
-var SPRING_SCALE =
-    "f=3.0; d=6.0; t=time-inPoint;\n" +
-    "if (t<0){ [0,0] } else { s=100-100*Math.exp(-d*t)*Math.cos(f*2*Math.PI*t); [s,s]; }";
+/* Bounciness 0..100 -> spring decay / frequency (50 = the classic feel). */
+function springOf(cfg) {
+    var b = (cfg.bounciness != null) ? Math.max(0, Math.min(100, cfg.bounciness)) : 50;
+    var k = (cfg.animSpeed > 0) ? cfg.animSpeed : 1;   // animation speed multiplier (1 = normal)
+    return { b: b, d: 10 - 0.08 * b, f: 1.5 + 0.03 * b, k: k };
+}
 
-var REVEAL_OP = "t=time-inPoint; linear(t,0,0.1,0,100)";
+function springScale(cfg) {
+    var s = springOf(cfg);
+    return "f=" + s.f + "; d=" + s.d + "; t=(time-inPoint)*" + s.k + ";\n" +
+        "if (t<0){ [0,0] } else { s=100-100*Math.exp(-d*t)*Math.cos(f*2*Math.PI*t); [s,s]; }";
+}
 
-var BOUNCE_POS =
-    "t=time-inPoint;\n" +
-    "if (t<0){ value } else {\n" +
-    "  d=6.0; f=2.0; o=Math.exp(-d*t)*Math.cos(f*2*Math.PI*t);\n" +
-    "  [value[0], value[1]-160*o];\n}";
+function revealOp(cfg) { return "t=(time-inPoint)*" + springOf(cfg).k + "; linear(t,0,0.1,0,100)"; }
 
-function typewriterExpr(full) {
-    return 'full="' + esc(full) + '"; t=time-inPoint; cps=22; n=Math.floor(t*cps);\n' +
+function bouncePos(cfg) {
+    var s = springOf(cfg);
+    return "t=(time-inPoint)*" + s.k + ";\n" +
+        "if (t<0){ value } else {\n" +
+        "  d=" + s.d + "; f=" + (s.f * 0.67) + "; o=Math.exp(-d*t)*Math.cos(f*2*Math.PI*t);\n" +
+        "  [value[0], value[1]-160*o];\n}";
+}
+
+/* ---- single-layer variants: animate from the latest Source Text keyframe ---- */
+function slKey(cfg) {
+    return "src = thisLayer.text.sourceText; n = 0;\n" +
+        "if (src.numKeys > 0){ n = src.nearestKey(time).index; if (src.key(n).time > time) n--; }\n" +
+        "tt = (n > 0) ? (time - src.key(n).time)*" + springOf(cfg).k + " : 0;\n";
+}
+
+function slRevealOp(cfg) { return slKey(cfg) + "(n > 0) ? linear(tt,0,0.1,0,100) : value;"; }
+
+function slBouncePos(cfg) {
+    var s = springOf(cfg);
+    return slKey(cfg) + "d=" + s.d + "; f=" + (s.f * 0.67) + ";\n" +
+        "o = (n > 0) ? Math.exp(-d*tt)*Math.cos(f*2*Math.PI*tt) : 0;\n" +
+        "[value[0], value[1]-160*o];";
+}
+
+function slTypewriter(cfg) {
+    return "n = 0; cps = " + (22 * springOf(cfg).k) + ";\n" +
+        "if (thisProperty.numKeys > 0){ n = thisProperty.nearestKey(time).index; if (thisProperty.key(n).time > time) n--; }\n" +
+        "(n > 0) ? value.substr(0, Math.max(0, Math.floor((time - thisProperty.key(n).time)*cps))) : value;";
+}
+
+function typewriterExpr(full, cfg) {
+    return 'full="' + esc(full) + '"; t=time-inPoint; cps=' + (22 * springOf(cfg).k) + '; n=Math.floor(t*cps);\n' +
         '(t<0)?"":full.substr(0,Math.max(0,n));';
 }
 
-function karaokeScale(ws, we) {
-    return "ws=" + ws + "; we=" + we + "; m=0.09;\n" +
+/* Multi-layer karaoke: each word layer gets a "Karaoke" slider with two HOLD
+   keyframes (1 at word start, 0 at word end). The expressions read those key
+   TIMES, so dragging the keyframes retimes the highlight. */
+var KARAOKE_KEYS =
+    "s = effect(\"Karaoke\")(1); ws = inPoint; we = outPoint;\n" +
+    "if (s.numKeys > 0) ws = s.key(1).time;\n" +
+    "if (s.numKeys > 1) we = s.key(s.numKeys).time;\n";
+
+function karaokeScale(cfg) {
+    return KARAOKE_KEYS + "m=" + (0.09 / springOf(cfg).k) + ";\n" +
         "a=clamp((time-ws)/m,0,1); b=clamp((we-time)/m,0,1);\n" +
-        "k=Math.min(a,b); s=100+26*k; [s,s];";
+        "k=Math.min(a,b); s2=100+26*k; [s2,s2];";
 }
 
-function karaokeColor(ws, we, cfg) {
+function karaokeColor(cfg) {
     var acc = "[" + cfg.accentColor[0] + "," + cfg.accentColor[1] + "," + cfg.accentColor[2] + ",1]";
     var base = "[" + cfg.fillColor[0] + "," + cfg.fillColor[1] + "," + cfg.fillColor[2] + ",1]";
-    return "ws=" + ws + "; we=" + we + ";\nacc=" + acc + "; base=" + base + ";\n" +
+    return KARAOKE_KEYS + "acc=" + acc + "; base=" + base + ";\n" +
         "(time>=ws && time<=we)? acc : base;";
+}
+
+/* Adds a Slider Control named `name`, fills it with HOLD keys [[time,value],...]. */
+function addKeyedSlider(layer, name, keys) {
+    var fx = layer.property("ADBE Effect Parade").addProperty("ADBE Slider Control");
+    fx.name = name;
+    var sl = layer.property("ADBE Effect Parade").property(name).property(1);
+    for (var i = 0; i < keys.length; i++) sl.setValueAtTime(keys[i][0], keys[i][1]);
+    for (var k = 1; k <= sl.numKeys; k++) {
+        sl.setInterpolationTypeAtKey(k, KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
+    }
 }
 
 /* Single-layer mode: auto-center the anchor to whatever text is shown. */
@@ -114,7 +166,26 @@ var ANCHOR_CENTER =
     "[r.left + r.width/2, r.top + r.height/2]";
 
 /* Single-layer mode: shrink to stay inside the frame, punch on each word change. */
-function fitPunchScale(margin) {
+function fitPunchScale(margin, cfg) {
+    var sp = springOf(cfg), pop;
+    if (cfg.preset === "popin" || cfg.preset === "wordbyword") {
+        pop = "pop = 1 - Math.exp(-" + sp.d + "*tt)*Math.cos(" + sp.f + "*2*Math.PI*tt);";   // spring up from 0
+    } else if (cfg.preset === "punch") {
+        pop = "pop = 1 + " + (0.22 * sp.b / 50) + "*Math.exp(-7.0*tt)*Math.cos(3.5*2*Math.PI*tt);";
+    } else {
+        pop = "";   // bounce / typewriter / karaoke animate other properties
+    }
+    if (cfg.preset === "typewriter") {
+        // Fit against the fully-typed phrase so the scale doesn't drift while it types.
+        return "src = thisLayer.text.sourceText; n = 0;\n" +
+            "if (src.numKeys > 0){ n = src.nearestKey(time).index; if (src.key(n).time > time) n--; }\n" +
+            "tf = time;\n" +
+            "if (n > 0){ tf = src.key(n).time + 8; if (n < src.numKeys) tf = Math.min(tf, src.key(n+1).time - 0.001); }\n" +
+            "r = thisLayer.sourceRectAtTime(tf, false);\n" +
+            "fitW = (r.width  > 0) ? thisComp.width  * " + margin + " / r.width  * 100 : 100;\n" +
+            "fitH = (r.height > 0) ? thisComp.height * " + margin + " / r.height * 100 : 100;\n" +
+            "fit = Math.min(100, fitW, fitH);\n[fit, fit]";
+    }
     return "r = thisLayer.sourceRectAtTime(time, false);\n" +
         "maxW = thisComp.width * " + margin + ";\n" +
         "maxH = thisComp.height * " + margin + ";\n" +
@@ -125,7 +196,7 @@ function fitPunchScale(margin) {
         "n = 0;\n" +
         "if (src.numKeys > 0){ n = src.nearestKey(time).index; if (src.key(n).time > time) n--; }\n" +
         "pop = 1;\n" +
-        "if (n > 0){ var tt = time - src.key(n).time; pop = 1 + 0.22*Math.exp(-7.0*tt)*Math.cos(3.5*2*Math.PI*tt); }\n" +
+        "if (n > 0){ var tt = (time - src.key(n).time)*" + sp.k + "; " + pop + " }\n" +
         "var s = fit * pop;\n[s, s]";
 }
 
@@ -141,9 +212,12 @@ function buildSingleLayer(comp, groups, cfg) {
     layer.property("Position").setValue([comp.width * cfg.posX / 100, comp.height * cfg.posY / 100]);
     layer.property("Anchor Point").expression = ANCHOR_CENTER;
     layer.property("Scale").expression =
-        (cfg.customExpr && trim(cfg.customExpr).length) ? cfg.customExpr : fitPunchScale(cfg.fitMargin || 0.9);
+        (cfg.customExpr && trim(cfg.customExpr).length) ? cfg.customExpr : fitPunchScale(cfg.fitMargin || 0.9, cfg);
 
     var mode = cfg.revealMode || "phrase";
+    // Some presets only make sense with a specific reveal.
+    if (cfg.preset === "wordbyword") mode = "oneword";
+    if (cfg.preset === "karaoke" || cfg.preset === "typewriter") mode = "phrase";
     // How long the caption lingers after its last word before a silence keyframe.
     var linger = (cfg.linger != null) ? cfg.linger : 0.15;
     // Whisper inflates a word's end to fill trailing silence; cap how long the
@@ -193,10 +267,59 @@ function buildSingleLayer(comp, groups, cfg) {
         tp.setInterpolationTypeAtKey(k, KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
     }
 
+    // Preset animation, driven by the Source Text keyframes.
+    if (cfg.preset === "popin" || cfg.preset === "wordbyword") {
+        layer.property("Opacity").expression = slRevealOp(cfg);
+    } else if (cfg.preset === "bounce") {
+        layer.property("Position").expression = slBouncePos(cfg);
+        layer.property("Opacity").expression = slRevealOp(cfg);
+    } else if (cfg.preset === "typewriter") {
+        tp.expression = slTypewriter(cfg);
+    } else if (cfg.preset === "karaoke") {
+        applySingleLayerKaraoke(layer, tp, groups, cfg);
+    }
+
     // Keep the layer present from comp start; the blank keyframe handles the lead-in.
     layer.inPoint = 0;
     layer.outPoint = groups[groups.length - 1].end + 0.5;
     return 1;
+}
+
+/* Single-layer karaoke: a Fill Color text animator whose expression selector
+   (based on words) lights up word number N of the current phrase, where N is
+   the keyframed "Karaoke Word" slider (HOLD keys: 1,2,3… at each word start,
+   0 in gaps). Drag / edit those keyframes to retime the highlight. */
+function applySingleLayerKaraoke(layer, tp, groups, cfg) {
+    var maxHold = (cfg.maxHold != null) ? cfg.maxHold : 1.2;
+    var keys = [[0, 0]];
+    for (var i = 0; i < groups.length; i++) {
+        var ws = groups[i].words;
+        for (var j = 0; j < ws.length; j++) {
+            keys.push([ws[j].start, j + 1]);
+            var end = Math.min(ws[j].end, ws[j].start + maxHold);
+            var nextStart = (j < ws.length - 1) ? ws[j + 1].start
+                : ((i < groups.length - 1) ? groups[i + 1].start : Number.MAX_VALUE);
+            if (end < nextStart - 0.02) keys.push([end, 0]);   // gap -> nothing lit
+        }
+    }
+    addKeyedSlider(layer, "Karaoke Word", keys);
+
+    var expr =
+        "w = Math.round(effect(\"Karaoke Word\")(1));\n" +
+        "(w > 0 && textIndex == w) ? 100 : 0;";
+
+    var animators = layer.property("ADBE Text Properties").property("ADBE Text Animators");
+    var anim = animators.addProperty("ADBE Text Animator");
+    anim.name = "Karaoke";
+    var idx = anim.propertyIndex;
+    animators.property(idx).property("ADBE Text Animator Properties")
+        .addProperty("ADBE Text Fill Color")
+        .setValue([cfg.accentColor[0], cfg.accentColor[1], cfg.accentColor[2], 1]);
+    var sel = animators.property(idx).property("ADBE Text Selectors").addProperty("ADBE Text Expressible Selector");
+    var sIdx = sel.propertyIndex;
+    sel = animators.property(idx).property("ADBE Text Selectors").property(sIdx);
+    sel.property("ADBE Text Range Type2").setValue(3);   // based on: words
+    sel.property("ADBE Text Expressible Amount").expression = expr;
 }
 
 /* ---------------------------------------------------------------- */
@@ -288,15 +411,15 @@ function applyPreset(layer, cfg, g) {
     var pos = layer.property("Position");
     var src = layer.property("Source Text");
 
-    if (cfg.preset === "popin" || cfg.preset === "wordbyword") {
-        scale.expression = SPRING_SCALE;
-        opacity.expression = REVEAL_OP;
+    if (cfg.preset === "popin" || cfg.preset === "wordbyword" || cfg.preset === "punch") {
+        scale.expression = springScale(cfg);
+        opacity.expression = revealOp(cfg);
     } else if (cfg.preset === "bounce") {
-        pos.expression = BOUNCE_POS;
-        opacity.expression = REVEAL_OP;
+        pos.expression = bouncePos(cfg);
+        opacity.expression = revealOp(cfg);
     } else if (cfg.preset === "typewriter") {
         var full = cfg.allCaps ? g.text.toUpperCase() : g.text;
-        src.expression = typewriterExpr(full);
+        src.expression = typewriterExpr(full, cfg);
     }
 
     if (cfg.customExpr && trim(cfg.customExpr).length) {
@@ -345,10 +468,11 @@ function buildKaraoke(comp, g, cfg) {
         accX += w + space;
 
         var ws = g.words[i2].start, we = g.words[i2].end;
-        L2.property("Scale").expression = karaokeScale(ws, we);
+        addKeyedSlider(L2, "Karaoke", [[ws, 1], [we, 0]]);
+        L2.property("Scale").expression = karaokeScale(cfg);
         try {
             var fx = L2.property("ADBE Effect Parade").addProperty("ADBE Fill");
-            fx.property("Color").expression = karaokeColor(ws, we, cfg);
+            fx.property("Color").expression = karaokeColor(cfg);
         } catch (e) { /* Fill effect unavailable -> scale-only highlight */ }
     }
     return n;

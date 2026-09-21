@@ -146,7 +146,7 @@
                         </label>
                     </div>
                     <p class="hint">A single "Captions" layer whose text changes exactly when each word is
-                        spoken — auto-centered, auto-shrunk. Turn off for the multi-layer presets.</p>
+                        spoken — auto-centered, auto-shrunk. All presets work in both modes; turn off for one layer per caption.</p>
 
                     <div class="row">
                         <label class="inline">Fit width %
@@ -169,14 +169,21 @@
                         </label>
                     </div>
 
-                    <label>Animation preset <span class="hint" style="display:inline">(multi-layer mode)</span>
+                    <label>Animation preset
                         <select id="preset">
+                            <option value="punch">Punch on each word</option>
                             <option value="popin">Pop-in (spring scale)</option>
                             <option value="wordbyword">Word-by-word reveal</option>
                             <option value="bounce">Bounce drop</option>
                             <option value="typewriter">Typewriter</option>
                             <option value="karaoke">Karaoke highlight</option>
                         </select>
+                    </label>
+                    <label>Bounciness <span class="hint" style="display:inline" id="bouncinessVal">50</span>
+                        <input type="range" id="bounciness" value="50" min="0" max="100" />
+                    </label>
+                    <label>Animation speed <span class="hint" style="display:inline" id="animSpeedVal">1.00x</span>
+                        <input type="range" id="animSpeed" value="1" min="0.25" max="3" step="0.05" />
                     </label>
 
                     <div class="divider"></div>

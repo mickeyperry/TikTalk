@@ -37,8 +37,21 @@ layers in one click. Made by **Mickey Perry**.
 - **Single layer (recommended):** one "Captions" text layer driven by hold
   keyframes — text changes exactly when each word is spoken, auto-centered and
   auto-shrunk to stay in frame.
-- **Multi-layer presets:** pop-in, word-by-word, bounce, typewriter, karaoke
-  highlight.
+- **Multi-layer:** one text layer per caption (per word for word-by-word / karaoke).
+
+### Animation presets (work in both modes)
+
+Punch, pop-in, word-by-word, bounce drop, typewriter, karaoke highlight — with
+**Bounciness** and **Animation speed** sliders.
+
+**Karaoke timing is keyframed:** single-layer mode adds a `Karaoke Word` slider
+(hold keys 1, 2, 3… = which word of the phrase is lit, 0 = none); multi-layer
+mode adds a `Karaoke` slider per word layer (first key = highlight start, last
+key = end). Drag the keyframes in the timeline to retime the highlight.
+
+The engine installer skips anything already on the machine (bin/ or PATH) and
+walks back through whisper.cpp releases until it finds one that ships a Windows
+x64 build.
 
 ## For development
 
